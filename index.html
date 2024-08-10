@@ -267,9 +267,9 @@
     </footer>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdom/16.5.0/jsdom.min.js"></script>
- <script>
+<script>
     const urlInput = document.getElementById('urlInput');
-    urlInput.placeholder = "https://copyrightchecker.com";  // Set placeholder
+    urlInput.placeholder = "https://copyrightchecker.com";
 
     const checkButton = document.getElementById('checkButton');
     const results = document.getElementById('results');
@@ -279,13 +279,13 @@
     checkButton.addEventListener('click', () => {
         const url = urlInput.value.trim();
         if (url) {
-            checkCopyright(url);
+            checkCopyrightForAllPages(url);
         } else {
             alert('Please enter a valid URL');
         }
     });
 
-    async function checkCopyright(url) {
+    async function checkCopyrightForAllPages(url) {
         checkButton.textContent = 'Checking...';
         checkButton.disabled = true;
         checkButton.classList.add('pulse');
@@ -293,24 +293,30 @@
         resultsBody.innerHTML = '';
 
         try {
-            const domain = new URL(url).hostname.replace('www.', '');  // Remove 'www' from domain
+            const domain = new URL(url).hostname.replace('www.', '');
             websiteTitle.textContent = domain;
 
-            const corsProxy = 'https://api.allorigins.win/raw?url=';
-            const response = await fetch(corsProxy + encodeURIComponent(url));
-            const html = await response.text();
+            const pageUrls = await getAllPageUrls(url);
+            const allMatches = [];
 
-            const contentMatches = await detectContentMatches(html, url);
+            for (const pageUrl of pageUrls) {
+                const matches = await checkCopyright(pageUrl);
+                allMatches.push(...matches);
+            }
 
-            contentMatches.forEach(item => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td><a href="${item.link}" target="_blank">${item.link}</a></td>
-                    <td>${item.title}</td>
-                    <td>${item.type}</td>
-                `;
-                resultsBody.appendChild(row);
-            });
+            if (allMatches.length > 0) {
+                allMatches.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td><a href="${item.link}" target="_blank">${item.link}</a></td>
+                        <td>${item.title}</td>
+                        <td>${item.type}</td>
+                    `;
+                    resultsBody.appendChild(row);
+                });
+            } else {
+                resultsBody.innerHTML = '<tr><td colspan="3">No matches found</td></tr>';
+            }
 
             results.style.display = 'block';
             setTimeout(() => results.classList.add('show'), 10);
@@ -324,32 +330,86 @@
         }
     }
 
+    async function getAllPageUrls(baseUrl) {
+        const corsProxy = 'https://api.allorigins.win/raw?url=';
+        const sitemapUrl = `${baseUrl}/sitemap.xml`;
+        const pageUrls = new Set();
+
+        try {
+            const sitemapResponse = await fetch(corsProxy + encodeURIComponent(sitemapUrl));
+            const sitemapText = await sitemapResponse.text();
+
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(sitemapText, "application/xml");
+            const locTags = xmlDoc.getElementsByTagName('loc');
+
+            for (let i = 0; i < locTags.length; i++) {
+                pageUrls.add(locTags[i].textContent.trim());
+            }
+        } catch (sitemapError) {
+            console.warn('Sitemap not found or inaccessible:', sitemapError);
+
+            // Fallback: Extract internal links from the main page
+            const response = await fetch(corsProxy + encodeURIComponent(baseUrl));
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const links = doc.querySelectorAll('a[href]');
+
+            links.forEach(link => {
+                const href = link.getAttribute('href');
+                if (href.startsWith('/') || href.includes(baseUrl)) {
+                    const fullUrl = new URL(href, baseUrl).href;
+                    pageUrls.add(fullUrl);
+                }
+            });
+        }
+
+        return Array.from(pageUrls);
+    }
+
+    async function checkCopyright(url) {
+        const corsProxy = 'https://api.allorigins.win/raw?url=';
+        const matches = [];
+
+        try {
+            const response = await fetch(corsProxy + encodeURIComponent(url));
+            const html = await response.text();
+
+            const contentMatches = await detectContentMatches(html, url);
+            matches.push(...contentMatches);
+        } catch (error) {
+            console.error('Error checking URL:', url, error);
+        }
+
+        return matches;
+    }
+
     async function detectContentMatches(html, baseUrl) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
         const matches = [];
 
         const googleApiKey = 'AIzaSyCBV73xlBUIqgfArPOxcYxge_G2w8yOqsA';
-        const googleSearchCx = 'copyright-checke-1723303850721';  // Replace with your Custom Search Engine ID
+        const googleSearchCx = 'copyright-checke-1723303850721';
 
-        // Text Content Check using Google Custom Search API
         const textContent = doc.body.innerText.trim();
         if (textContent) {
-            const searchQuery = encodeURIComponent(textContent.slice(0, 100));  // Limit to first 100 characters
+            const searchQuery = encodeURIComponent(textContent.slice(0, 100));
             const googleSearchUrl = `https://www.googleapis.com/customsearch/v1?q=${searchQuery}&key=${googleApiKey}&cx=${googleSearchCx}`;
             const googleResponse = await fetch(googleSearchUrl);
             const googleData = await googleResponse.json();
 
             if (googleData.items && googleData.items.length > 0) {
-                matches.push({
-                    link: baseUrl,
-                    title: 'Text Content',
-                    type: 'Content Match Found'
+                googleData.items.forEach(item => {
+                    matches.push({
+                        link: item.link,
+                        title: item.title,
+                        type: 'Text Content Match'
+                    });
                 });
             }
         }
 
-        // Image Content Check using Google Custom Search API
         const images = doc.querySelectorAll('img');
         for (const img of images) {
             const src = new URL(img.getAttribute('src'), baseUrl).href;
@@ -359,15 +419,16 @@
             const googleData = await googleResponse.json();
 
             if (googleData.items && googleData.items.length > 0) {
-                matches.push({
-                    link: src,
-                    title: img.getAttribute('alt') || 'Image',
-                    type: 'Image Match Found'
+                googleData.items.forEach(item => {
+                    matches.push({
+                        link: item.link,
+                        title: img.getAttribute('alt') || 'Image Match',
+                        type: 'Image Match Found'
+                    });
                 });
             }
         }
 
-        // Video Content Check using Google Custom Search API
         const videos = doc.querySelectorAll('video');
         for (const video of videos) {
             const src = new URL(video.getAttribute('src'), baseUrl).href;
@@ -377,10 +438,12 @@
             const googleData = await googleResponse.json();
 
             if (googleData.items && googleData.items.length > 0) {
-                matches.push({
-                    link: src,
-                    title: 'Video Content',
-                    type: 'Video Match Found'
+                googleData.items.forEach(item => {
+                    matches.push({
+                        link: item.link,
+                        title: 'Video Match',
+                        type: 'Video Match Found'
+                    });
                 });
             }
         }
