@@ -54,18 +54,21 @@
             color: var(--primary-color);
             font-size: 2.5rem;
             font-family: 'Orbitron', sans-serif;
+          
         }
        p{
            
            color: var(--primary-color);
             font-size: 1.5rem;
             font-family: 'Orbitron', sans-serif;
+         
            margin-top:20px;
        }
        .copy{
            color: var(--primary-color);
             font-size: 1rem;
             font-family: 'Orbitron', sans-serif;
+            
            margin-top:20px;
        }
         .input-container {
@@ -196,6 +199,7 @@
             text-align: center;
             color: rgba(255, 255, 255, 0.7);
             font-size: 0.9rem;
+            margin-bottom:0;
         }
 
         @media (max-width: 600px) {
@@ -291,7 +295,8 @@
 
         try {
             const domain = new URL(url).hostname.replace('www.', '');
-            websiteTitle.textContent = domain;
+            const title = domain.split('.')[0].toUpperCase(); // Extract and uppercase the part before the first "."
+            websiteTitle.textContent = title;
 
             const pageUrls = await getAllPageUrls(url);
             const allMatches = [];
@@ -329,20 +334,20 @@
 
     async function getAllPageUrls(baseUrl) {
         const corsProxy = 'https://api.allorigins.win/raw?url=';
-        const sitemapUrl = `${baseUrl}/sitemap.xml`;
+        const sitemapXmlUrl = `${baseUrl}/sitemap.xml`;
+        const sitemapHtmlUrl = `${baseUrl}/sitemap.html`;
         const pageUrls = new Set();
 
         try {
-            const sitemapResponse = await fetch(corsProxy + encodeURIComponent(sitemapUrl));
-            const sitemapText = await sitemapResponse.text();
+            // Try fetching sitemap.xml
+            const sitemapResponseXml = await fetch(corsProxy + encodeURIComponent(sitemapXmlUrl));
+            const sitemapTextXml = await sitemapResponseXml.text();
+            parseSitemap(sitemapTextXml, pageUrls);
 
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(sitemapText, "application/xml");
-            const locTags = xmlDoc.getElementsByTagName('loc');
-
-            for (let i = 0; i < locTags.length; i++) {
-                pageUrls.add(locTags[i].textContent.trim());
-            }
+            // Try fetching sitemap.html
+            const sitemapResponseHtml = await fetch(corsProxy + encodeURIComponent(sitemapHtmlUrl));
+            const sitemapTextHtml = await sitemapResponseHtml.text();
+            parseSitemap(sitemapTextHtml, pageUrls);
         } catch (sitemapError) {
             console.warn('Sitemap not found or inaccessible:', sitemapError);
 
@@ -362,6 +367,16 @@
         }
 
         return Array.from(pageUrls);
+    }
+
+    function parseSitemap(sitemapText, pageUrls) {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(sitemapText, "application/xml");
+        const locTags = xmlDoc.getElementsByTagName('loc');
+
+        for (let i = 0; i < locTags.length; i++) {
+            pageUrls.add(locTags[i].textContent.trim());
+        }
     }
 
     async function checkCopyright(url) {
@@ -448,6 +463,7 @@
         return matches;
     }
 </script>
+
 
 </body>
 </html>
