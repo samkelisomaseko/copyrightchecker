@@ -54,23 +54,21 @@
             color: var(--primary-color);
             font-size: 2.5rem;
             font-family: 'Orbitron', sans-serif;
-          
         }
-       p{
-           
-           color: var(--primary-color);
+
+        p {
+            color: var(--primary-color);
             font-size: 1.5rem;
             font-family: 'Orbitron', sans-serif;
-         
-           margin-top:20px;
-       }
-       .copy{
-           color: var(--primary-color);
+            margin-top: 20px;
+        }
+    .copy{
+        color: var(--primary-color);
             font-size: 1rem;
             font-family: 'Orbitron', sans-serif;
-            
-           margin-top:20px;
-       }
+            margin-top: 20px;
+    }
+
         .input-container {
             display: flex;
             gap: 10px;
@@ -97,6 +95,7 @@
         }
 
         button {
+            position: relative;
             padding: 15px 30px;
             font-size: 1rem;
             background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
@@ -108,7 +107,6 @@
             font-family: 'Orbitron', sans-serif;
             text-transform: uppercase;
             letter-spacing: 1px;
-            position: relative;
             overflow: hidden;
         }
 
@@ -133,6 +131,44 @@
             transform: translateY(-3px);
         }
 
+        button.checked {
+            background: linear-gradient(45deg, #00FF00, #008000); /* Green gradient to indicate success */
+        }
+
+        button.stopped {
+            background: linear-gradient(45deg, #FF0000, #800000); /* Red gradient to indicate stop */
+        }
+
+        #checkButton.progress {
+            padding-right: 80px; /* Leave space for the progress bar */
+        }
+
+        #progressContainer {
+            position: absolute;
+            top: 50%;
+            right: 20px;
+            width: 50px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            transform: translateY(-50%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        #progressBar {
+            width: 0;
+            height: 100%;
+            background: var(--primary-color);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        button.progressing #progressContainer {
+            opacity: 1;
+        }
+
         #results {
             background: var(--glass-background);
             backdrop-filter: blur(10px);
@@ -144,6 +180,7 @@
             transition: all 0.5s ease;
             opacity: 0;
             transform: translateY(20px);
+            display: none;
         }
 
         #results.show {
@@ -199,7 +236,31 @@
             text-align: center;
             color: rgba(255, 255, 255, 0.7);
             font-size: 0.9rem;
-            margin-bottom:0;
+            margin-bottom: 0;
+        }
+
+        .download-button {
+            margin-top: 20px;
+            padding: 15px 30px;
+            font-size: 1rem;
+            background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+            color: var(--background-color);
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Orbitron', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            overflow: hidden;
+            width: 100%;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .download-button:hover {
+            box-shadow: 0 0 20px var(--secondary-color);
+            transform: translateY(-3px);
         }
 
         @media (max-width: 600px) {
@@ -211,7 +272,7 @@
                 flex-direction: column;
             }
 
-            input[type="url"], button {
+            input[type="url"], button, .download-button {
                 width: 100%;
             }
 
@@ -239,16 +300,21 @@
 <body>
     <header>
         <h1>Copyright Checker</h1>
-        <p>Scannig Images,Text Content & Videos for Copyright</p>
+        <p>Scanning Images, Text Content & Videos for Copyright</p>
     </header>
 
     <div class="container">
         <div class="input-container">
-            <input type="url" id="urlInput" placeholder="Enter website URL">
-            <button id="checkButton">Run Check</button>
+            <input type="url" id="urlInput" aria-label="Enter website URL" placeholder="Enter website URL">
+            <button id="checkButton">
+                Run Check
+                <div id="progressContainer">
+                    <div id="progressBar"></div>
+                </div>
+            </button>
         </div>
 
-        <div id="results" style="display: none;">
+        <div id="results">
             <h2 id="websiteTitle"></h2>
             <table>
                 <thead>
@@ -260,50 +326,94 @@
                 </thead>
                 <tbody id="resultsBody"></tbody>
             </table>
+            <button id="downloadCSV" class="download-button">Download as CSV</button>
+            <button id="downloadPDF" class="download-button">Download as PDF</button>
         </div>
     </div>
 
     <footer>
-        <p class="copy">&copy; 2024 Copyright Checker. All rights reserved.</p>
+        <a href="https://shamase.co"
+        <p class="copy">&copy; 2024 Copyright Checker. Web Developed By Shamase. All rights reserved.</p>
+        </a>
     </footer>
+</body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdom/16.5.0/jsdom.min.js"></script>
 <script>
     const urlInput = document.getElementById('urlInput');
-    urlInput.placeholder = "https://copyrightchecker.com";
-
     const checkButton = document.getElementById('checkButton');
+    const progressBar = document.getElementById('progressBar');
     const results = document.getElementById('results');
-    const websiteTitle = document.getElementById('websiteTitle');
     const resultsBody = document.getElementById('resultsBody');
+    const downloadCSVButton = document.getElementById('downloadCSV');
+    const downloadPDFButton = document.getElementById('downloadPDF');
+
+    const BATCH_SIZE = 5; // Number of requests per batch
+    const BATCH_DELAY = 2000; // Delay between batches in milliseconds
+
+    let stopChecking = false; // Flag to control stopping process
 
     checkButton.addEventListener('click', () => {
-        const url = urlInput.value.trim();
-        if (url) {
-            checkCopyrightForAllPages(url);
+        if (checkButton.textContent === 'Stopped') {
+            resetInterface();
+        } else if (!stopChecking) {
+            const url = urlInput.value.trim();
+            if (url) {
+                stopChecking = false; // Reset flag
+                checkCopyrightForAllPages(url);
+            } else {
+                alert('Please enter a valid URL');
+            }
         } else {
-            alert('Please enter a valid URL');
+            stopChecking = true;
+            checkButton.textContent = 'Stopped';
+            checkButton.classList.remove('pulse', 'progressing', 'checked');
+            checkButton.classList.add('stopped');
         }
     });
 
+    function resetInterface() {
+        checkButton.textContent = 'Run Check';
+        checkButton.classList.remove('stopped');
+        urlInput.value = ''; // Clear input
+        progressBar.style.width = '0%'; // Reset progress bar
+    }
+
     async function checkCopyrightForAllPages(url) {
         checkButton.textContent = 'Checking...';
-        checkButton.disabled = true;
-        checkButton.classList.add('pulse');
+        checkButton.disabled = false;
+        checkButton.classList.add('pulse', 'progressing'); // Add pulse and progress classes
+        progressBar.style.width = '0%'; // Reset progress bar
+
         results.style.display = 'none';
         resultsBody.innerHTML = '';
 
         try {
             const domain = new URL(url).hostname.replace('www.', '');
-            const title = domain.split('.')[0].toUpperCase(); // Extract and uppercase the part before the first "."
-            websiteTitle.textContent = title;
+            const title = domain.split('.')[0].toUpperCase();
+            document.getElementById('websiteTitle').textContent = title;
 
             const pageUrls = await getAllPageUrls(url);
             const allMatches = [];
+            const pageCount = pageUrls.length;
 
-            for (const pageUrl of pageUrls) {
-                const matches = await checkCopyright(pageUrl);
-                allMatches.push(...matches);
+            for (let i = 0; i < pageCount; i += BATCH_SIZE) {
+                if (stopChecking) break; // Stop the process if the flag is set
+
+                const batch = pageUrls.slice(i, i + BATCH_SIZE);
+
+                // Process batch
+                const batchResults = await Promise.all(batch.map(pageUrl => checkCopyright(pageUrl)));
+                batchResults.forEach(matches => allMatches.push(...matches));
+
+                // Update progress bar
+                const progressPercentage = ((i + BATCH_SIZE) / pageCount) * 100;
+                progressBar.style.width = `${Math.min(progressPercentage, 100)}%`;
+
+                // Introduce a delay between batches
+                if (i + BATCH_SIZE < pageCount) {
+                    await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+                }
             }
 
             if (allMatches.length > 0) {
@@ -321,14 +431,16 @@
             }
 
             results.style.display = 'block';
-            setTimeout(() => results.classList.add('show'), 10);
+            results.classList.add('show');
         } catch (error) {
             console.error('Error:', error);
             alert('An error occurred while checking the website. Please try again.');
         } finally {
-            checkButton.textContent = 'Run Check';
-            checkButton.disabled = false;
-            checkButton.classList.remove('pulse');
+            if (!stopChecking) {
+                checkButton.textContent = 'Checked';
+                checkButton.classList.remove('pulse', 'progressing');
+                checkButton.classList.add('checked');
+            }
         }
     }
 
@@ -339,24 +451,19 @@
         const pageUrls = new Set();
 
         try {
-            // Try fetching sitemap.xml
-            const sitemapResponseXml = await fetch(corsProxy + encodeURIComponent(sitemapXmlUrl));
+            const sitemapResponseXml = await fetchWithRetry(corsProxy + encodeURIComponent(sitemapXmlUrl));
             const sitemapTextXml = await sitemapResponseXml.text();
             parseSitemap(sitemapTextXml, pageUrls);
 
-            // Try fetching sitemap.html
-            const sitemapResponseHtml = await fetch(corsProxy + encodeURIComponent(sitemapHtmlUrl));
+            const sitemapResponseHtml = await fetchWithRetry(corsProxy + encodeURIComponent(sitemapHtmlUrl));
             const sitemapTextHtml = await sitemapResponseHtml.text();
             parseSitemap(sitemapTextHtml, pageUrls);
         } catch (sitemapError) {
             console.warn('Sitemap not found or inaccessible:', sitemapError);
-
-            // Fallback: Extract internal links from the main page
-            const response = await fetch(corsProxy + encodeURIComponent(baseUrl));
+            const response = await fetchWithRetry(corsProxy + encodeURIComponent(baseUrl));
             const html = await response.text();
             const doc = new DOMParser().parseFromString(html, 'text/html');
             const links = doc.querySelectorAll('a[href]');
-
             links.forEach(link => {
                 const href = link.getAttribute('href');
                 if (href.startsWith('/') || href.includes(baseUrl)) {
@@ -373,9 +480,22 @@
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(sitemapText, "application/xml");
         const locTags = xmlDoc.getElementsByTagName('loc');
-
         for (let i = 0; i < locTags.length; i++) {
             pageUrls.add(locTags[i].textContent.trim());
+        }
+    }
+
+    async function fetchWithRetry(url, retries = 3, delay = 1000) {
+        for (let i = 0; i < retries; i++) {
+            try {
+                return await fetch(url);
+            } catch (err) {
+                if (i < retries - 1) {
+                    await new Promise(r => setTimeout(r, delay));
+                } else {
+                    throw err;
+                }
+            }
         }
     }
 
@@ -384,9 +504,8 @@
         const matches = [];
 
         try {
-            const response = await fetch(corsProxy + encodeURIComponent(url));
+            const response = await fetchWithRetry(corsProxy + encodeURIComponent(url));
             const html = await response.text();
-
             const contentMatches = await detectContentMatches(html, url);
             matches.push(...contentMatches);
         } catch (error) {
@@ -400,15 +519,15 @@
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
         const matches = [];
-
         const googleApiKey = 'AIzaSyCBV73xlBUIqgfArPOxcYxge_G2w8yOqsA';
         const googleSearchCx = 'copyright-checke-1723303850721';
 
+        // Text content matching
         const textContent = doc.body.innerText.trim();
         if (textContent) {
             const searchQuery = encodeURIComponent(textContent.slice(0, 100));
             const googleSearchUrl = `https://www.googleapis.com/customsearch/v1?q=${searchQuery}&key=${googleApiKey}&cx=${googleSearchCx}`;
-            const googleResponse = await fetch(googleSearchUrl);
+            const googleResponse = await fetchWithRetry(googleSearchUrl);
             const googleData = await googleResponse.json();
 
             if (googleData.items && googleData.items.length > 0) {
@@ -422,12 +541,13 @@
             }
         }
 
+        // Image content matching
         const images = doc.querySelectorAll('img');
         for (const img of images) {
             const src = new URL(img.getAttribute('src'), baseUrl).href;
             const searchQuery = encodeURIComponent(src);
             const googleSearchUrl = `https://www.googleapis.com/customsearch/v1?q=${searchQuery}&key=${googleApiKey}&cx=${googleSearchCx}&searchType=image`;
-            const googleResponse = await fetch(googleSearchUrl);
+            const googleResponse = await fetchWithRetry(googleSearchUrl);
             const googleData = await googleResponse.json();
 
             if (googleData.items && googleData.items.length > 0) {
@@ -441,12 +561,13 @@
             }
         }
 
+        // Video content matching
         const videos = doc.querySelectorAll('video');
         for (const video of videos) {
             const src = new URL(video.getAttribute('src'), baseUrl).href;
             const searchQuery = encodeURIComponent(src);
             const googleSearchUrl = `https://www.googleapis.com/customsearch/v1?q=${searchQuery}&key=${googleApiKey}&cx=${googleSearchCx}&searchType=video`;
-            const googleResponse = await fetch(googleSearchUrl);
+            const googleResponse = await fetchWithRetry(googleSearchUrl);
             const googleData = await googleResponse.json();
 
             if (googleData.items && googleData.items.length > 0) {
@@ -462,8 +583,37 @@
 
         return matches;
     }
+
+    // Code to download results as CSV
+    downloadCSVButton.addEventListener('click', () => {
+        const rows = Array.from(resultsBody.querySelectorAll('tr'));
+        const csvContent = rows.map(row => {
+            const cols = Array.from(row.querySelectorAll('td'));
+            return cols.map(col => col.textContent).join(',');
+        }).join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'copyright_check_results.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+    });
+
+    // Code to download results as PDF (using jsPDF library)
+    downloadPDFButton.addEventListener('click', () => {
+        const rows = Array.from(resultsBody.querySelectorAll('tr'));
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF();
+
+        pdf.text('Copyright Check Results', 10, 10);
+        rows.forEach((row, i) => {
+            const cols = Array.from(row.querySelectorAll('td'));
+            pdf.text(cols.map(col => col.textContent).join(' | '), 10, 20 + (i * 10));
+        });
+
+        pdf.save('copyright_check_results.pdf');
+    });
 </script>
 
-
-</body>
 </html>
